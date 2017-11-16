@@ -31,6 +31,7 @@ from ryu.ofproto import ether
 from ryu.topology import event, switches
 from ryu.topology.api import get_switch, get_link
 from ryu.lib import mac
+from ryu.lib import ofctl_v1_0
 from ryu.app.wsgi import ControllerBase, WSGIApplication, route
 from ryu.services.protocols.bgp.bgpspeaker import BGPSpeaker
 from webob import Response
@@ -43,7 +44,7 @@ base_url = '/sdnips'
 
 REST_RESULT = 'result'
 REST_DETAILS = 'details'
-REST_OK = 'success'
+REST_OK = 'Success'
 REST_NG = 'failure'
 
 class SDNIPSApp(app_manager.RyuApp):
@@ -72,9 +73,9 @@ class SDNIPSApp(app_manager.RyuApp):
                 if p.port_no != ofproto.OFPP_LOCAL:
                     ports[p.port_no] = {'name' : p.name, 'hw_addr' : p.hw_addr}
             self.net.add_node(ev.dp.id, **{'ports': ports, 'conn': ev.dp})
-            print 'OFPStateChange switch entered: datapath_id=0x%016x ports=%s' % (ev.dp.id, ev.ports)
+            print 'OFPStateChange switch entered: dpid=%s' % (dpid_lib.dpid_to_str(ev.dp.id))
         else:
-            print 'OFPStateChange switch leaves: datapath_id=0x%016x' % (ev.dp.id)
+            print 'OFPStateChange switch leaves: dpid=%s' % (dpid_lib.dpid_to_str(ev.dp.id))
             self.net.remove_node(ev.dp.id)
 
     topo_events = [event.EventSwitchEnter, event.EventPortAdd, event.EventLinkAdd]
@@ -86,9 +87,19 @@ class SDNIPSApp(app_manager.RyuApp):
         for link in links_list:
             # check for unwanted nodes and links
             if link.src.dpid not in self.net.nodes() or link.dst.dpid not in self.net.nodes():
-                next
+                continue
+            if self.net.has_edge(link.src.dpid, link.dst.dpid):
+                continue
             links.append((link.src.dpid,link.dst.dpid,{'sport':link.src.port_no, 'dport':link.dst.port_no}))
-        print "Update graph edges: %s" % (links)
+        if not links:
+            return
+        print "Update graph edges:"
+        for l in links:
+            print "==> %s:%d <-> %s:%d" % (
+                    dpid_lib.dpid_to_str(l[0]),
+                    l[2]['sport'],
+                    dpid_lib.dpid_to_str(l[1]),
+                    l[2]['dport'])
         self.net.add_edges_from(links)
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
@@ -204,7 +215,7 @@ class SDNIPSApp(app_manager.RyuApp):
             actions = [dp.ofproto_parser.OFPActionOutput(action_out_port)]
             self.add_flow(dp, 65535, match, actions)
 
-        return (True, 'success')
+        return (True, 'Success')
 
     def bgp_create(self, as_number, router_id):
         try:
@@ -251,6 +262,32 @@ class SDNIPSApp(app_manager.RyuApp):
     def peer_up_handler(self, remote_ip, remote_as):
         print 'Peer up:', remote_ip, remote_as
 
+    def flow_create_mirror(self, dpid, flow, to_port):
+        try:
+            dp = self.net.node[dpid]['conn']
+        except:
+            return (False, 'dpid not found!')
+        parser = dp.ofproto_parser
+
+        new_action = parser.OFPActionOutput(to_port)
+
+        # check if the port is already on flow actions, and just return
+        # in this case since we have nothing to do
+        if new_action in flow['actions']:
+            return (True, 'Success - to_port already in flow actions')
+
+        flow['actions'].append(new_action)
+
+        try:
+            match_ofp = self.build_match(dp, **flow['match'])
+            mod = parser.OFPFlowMod(datapath=dp, priority=flow['priority'],
+                                command=dp.ofproto.OFPFC_MODIFY_STRICT,
+                                match=match_ofp, actions=flow['actions'])
+            dp.send_msg(mod)
+        except Exception as e:
+            return(False, 'Error installing flow_mod: %s' % (e))
+
+        return(True, 'Success')
 
 class SDNIPSWSGIApp(ControllerBase):
     def __init__(self, req, link, data, **config):
@@ -404,4 +441,54 @@ class SDNIPSWSGIApp(ControllerBase):
             flows.append({'match': flow['match'], 'priority': flow['priority']})
 
         body = json.dumps(flows)
+        return Response(content_type='application/json', body=body)
+
+    @route(myapp_name, base_url + '/flows/{dpid}/mirror', methods=['POST'])
+    def flows_create_mirror(self, req, **kwargs):
+        try:
+            params = req.json
+            assert 'flows' in params
+            assert 'to_port' in params
+        except Exception as e:
+            print "==> flows_create_mirror error: %s -- request=%s" % (e, req)
+            details = 'Missing parameters - flows, to_port'
+            msg = {REST_RESULT: REST_NG, REST_DETAILS: details}
+            return Response(status=400, body=json.dumps(msg))
+
+        dpid = dpid_lib.str_to_dpid(kwargs['dpid'])
+        if dpid not in self.myapp.net.nodes():
+            details = 'switch not found - invalid dpid'
+            msg = {REST_RESULT: REST_NG, REST_DETAILS: details}
+            return Response(status=404, body=json.dumps(msg))
+
+        installed_flows = []
+        installed_actions = []
+        for flow in self.myapp.flows.get(dpid, []):
+            installed_flows.append({'match': flow['match'], 'priority': flow['priority']})
+            installed_actions.append(flow['actions'])
+
+        access_ports = self.myapp.get_access_ports(dpid)
+
+        # sanity checks
+        for flow in params['flows']:
+            try:
+                idx = installed_flows.index(flow)
+                flow['actions'] = installed_actions[idx]
+            except:
+                details = 'invalid flow entry specified (not found in switch): %s' % (flow)
+                msg = {REST_RESULT: REST_NG, REST_DETAILS: details}
+                return Response(status=404, body=json.dumps(msg))
+
+        if params['to_port'] not in access_ports:
+            details = 'invalid to_port specified (not an access port): %s' % (params['to_port'])
+            msg = {REST_RESULT: REST_NG, REST_DETAILS: details}
+            return Response(status=404, body=json.dumps(msg))
+
+        result = []
+        for flow in params['flows']:
+            status, msg = self.myapp.flow_create_mirror(dpid, flow, params['to_port'])
+            result.append({'flow': {'match':flow['match'], 'priority':flow['priority']}, 'status': msg})
+
+        body = json.dumps(result)
+
         return Response(content_type='application/json', body=body)
