@@ -57,6 +57,7 @@ class SDNIPSApp(app_manager.RyuApp):
         wsgi.register(SDNIPSWSGIApp,{myapp_name: self})
         self.bgp_speaker = None
         self.prefixes = []
+        self.flows = {}
 
     def __exit__(self, exc_type, exc_value, traceback):
         for prefix in self.prefixes:
@@ -101,9 +102,9 @@ class SDNIPSApp(app_manager.RyuApp):
         datapath.send_msg(clear)
 
         # install table-miss flow entry
-        match = parser.OFPMatch()
+        match = {}
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER)]
-        self.add_flow(datapath, 65530, match, actions)
+        self.add_flow(datapath, 65530, match, actions, visible=False)
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
@@ -126,13 +127,18 @@ class SDNIPSApp(app_manager.RyuApp):
             ports.remove(self.net.edge[sw][e]['sport'])
         return ports
 
-    def add_flow(self, datapath, priority, match, actions):
+    def add_flow(self, datapath, priority, match, actions, visible=True):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
 
+        match_ofp = self.build_match(datapath, **match)
         mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
-                                match=match, actions=actions)
+                                match=match_ofp, actions=actions)
         datapath.send_msg(mod)
+
+        if visible:
+            self.flows.setdefault(datapath.id, [])
+            self.flows[datapath.id].append({'match': match, 'priority': priority, 'actions':actions})
 
     def build_match(self, datapath, in_port=0, dl_type=0, dl_src=0, dl_dst=0, 
                  dl_vlan=0,nw_src=0, src_mask=32, nw_dst=0, dst_mask=32,
@@ -188,13 +194,13 @@ class SDNIPSApp(app_manager.RyuApp):
             dp = self.net.node[sw]['conn']
             # uniA -> uniB
             self.logger.info("==> add_flow sw=%s (->) in_port=%s vlanid=%d action_out_port=%s", sw, match_in_port, vlanid, action_out_port)
-            match = self.build_match(dp, in_port=match_in_port, dl_vlan=vlanid)
+            match = {'in_port': match_in_port, 'dl_vlan':vlanid}
             actions = [dp.ofproto_parser.OFPActionOutput(action_out_port)]
             self.add_flow(dp, 65535, match, actions)
             # uniB -> uniA
             match_in_port, action_out_port = action_out_port, match_in_port
             self.logger.info("==> add_flow sw=%s (<-) in_port=%s vlanid=%d action_out_port=%s", sw, match_in_port, vlanid, action_out_port)
-            match = self.build_match(dp, in_port=match_in_port, dl_vlan=vlanid)
+            match = {'in_port':match_in_port, 'dl_vlan':vlanid}
             actions = [dp.ofproto_parser.OFPActionOutput(action_out_port)]
             self.add_flow(dp, 65535, match, actions)
 
@@ -383,4 +389,19 @@ class SDNIPSWSGIApp(ControllerBase):
         status, msg = self.myapp.bgp_add_prefix(prefix)
 
         body = json.dumps([msg])
+        return Response(content_type='application/json', body=body)
+
+    @route(myapp_name, base_url + '/flows/{dpid}', methods=['GET'])
+    def list_flows_switch(self, req, **kwargs):
+        dpid = dpid_lib.str_to_dpid(kwargs['dpid'])
+        if dpid not in self.myapp.net.nodes():
+            details = 'switch not found - invalid dpid'
+            msg = {REST_RESULT: REST_NG, REST_DETAILS: details}
+            return Response(status=404, body=json.dumps(msg))
+
+        flows = []
+        for flow in self.myapp.flows.get(dpid, []):
+            flows.append({'match': flow['match'], 'priority': flow['priority']})
+
+        body = json.dumps(flows)
         return Response(content_type='application/json', body=body)
