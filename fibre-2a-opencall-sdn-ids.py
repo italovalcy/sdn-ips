@@ -38,6 +38,8 @@ from webob import Response
 import networkx as nx
 import json
 import socket, os
+from threading import Thread
+from time import sleep
 
 myapp_name = 'sdnips_app'
 base_url = '/sdnips'
@@ -59,10 +61,46 @@ class SDNIPSApp(app_manager.RyuApp):
         self.bgp_speaker = None
         self.prefixes = []
         self.flows = {}
+        load_config_thread = Thread(target=self.load_config, args=())
+        load_config_thread.start()
 
     def __exit__(self, exc_type, exc_value, traceback):
         for prefix in self.prefixes:
             os.system('/sbin/ip route del %s' % prefix)
+
+    def load_config(self):
+        try:
+            with open('sdn-ips-config.json', 'r') as fp:
+                data = json.load(fp)
+        except Exception e:
+            print "Fail to load SDN-IPS config. Error: %s" % (e)
+
+        retry=0
+        while set(data['nodes']) != set(self.net.nodes()) and retry < 10:
+            sleep(30)
+            retry += 1
+
+        if retry == 10:
+            print "Could not load config because some nodes are missing!"
+            return
+
+        # TODO: call specific methods to handle data
+
+    def persist_config(self):
+        data = {}
+        # Topology information
+        data['nodes'] = self.net.nodes()
+        # BGP config
+        data['bgp'] = {}
+        data['bgp']['prefixes'] = self.prefixes
+        # OpenFlow rules
+        data['flows'] = self.flows
+
+        try:
+            with open('sdn-ips-config.json', 'w') as fp:
+                json.dump(data, fp, indent=4)
+        except Exception e:
+            print "Fail to save SDN-IPS config! Error: %s" % (e)
 
     @set_ev_cls(dpset.EventDP, dpset.DPSET_EV_DISPATCHER)
     def datapath_handler(self, ev):
