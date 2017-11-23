@@ -84,7 +84,7 @@ class SDNIPSApp(app_manager.RyuApp):
             print "Could not load config because some nodes are missing!"
             return
 
-        # TODO: call specific methods to handle data
+        # TODO: call specific methods to handle  data
 
     def persist_config(self):
         data = {}
