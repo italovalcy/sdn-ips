@@ -84,6 +84,13 @@ class SDNIPSApp(app_manager.RyuApp):
             print "Could not load config because some nodes are missing!"
             return
 
+        # Reinstall flows
+        for dpid in data.get('flows', []):
+            for flow in data[dpid]:
+                dp = self.net.node[dpid]['conn']
+                self.add_flow(dp, flow['priority'],
+                        flow['match'], flow['actions']):
+
         # TODO: call specific methods to handle data
 
     def persist_config(self):
@@ -188,6 +195,7 @@ class SDNIPSApp(app_manager.RyuApp):
         if visible:
             self.flows.setdefault(datapath.id, [])
             self.flows[datapath.id].append({'match': match, 'priority': priority, 'actions':actions})
+            self.persist_config()
 
     def build_match(self, datapath, in_port=0, dl_type=0, dl_src=0, dl_dst=0, 
                  dl_vlan=0,nw_src=0, src_mask=32, nw_dst=0, dst_mask=32,
