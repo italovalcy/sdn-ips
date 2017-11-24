@@ -59,13 +59,13 @@ class SDNIPSApp(app_manager.RyuApp):
         wsgi = kwargs['wsgi']
         wsgi.register(SDNIPSWSGIApp,{myapp_name: self})
         self.bgp_speaker = None
-        self.prefixes = []
+        self.rcv_prefixes = []
         self.flows = {}
         load_config_thread = Thread(target=self.load_config, args=())
         load_config_thread.start()
 
     def __exit__(self, exc_type, exc_value, traceback):
-        for prefix in self.prefixes:
+        for prefix in self.rcv_prefixes:
             os.system('/sbin/ip route del %s' % prefix)
 
     def load_config(self):
@@ -99,7 +99,6 @@ class SDNIPSApp(app_manager.RyuApp):
         data['nodes'] = self.net.nodes()
         # BGP config
         data['bgp'] = {}
-        data['bgp']['prefixes'] = self.prefixes
         # OpenFlow rules
         data['flows'] = self.flows
 
@@ -296,11 +295,11 @@ class SDNIPSApp(app_manager.RyuApp):
         os.system('/sbin/ip route %s %s via %s' % (action, event.prefix, event.nexthop))
         if event.is_withdraw:
             try:
-                self.prefixes.remove(event.prefix)
+                self.rcv_prefixes.remove(event.prefix)
             except:
                 pass
         else:
-            self.prefixes.append(event.prefix)
+            self.rcv_prefixes.append(event.prefix)
     
     def peer_down_handler(self, remote_ip, remote_as):
         print 'Peer down:', remote_ip, remote_as
