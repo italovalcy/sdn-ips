@@ -282,6 +282,7 @@ class SDNIPSApp(app_manager.RyuApp):
         self.bgp_config['router_id'] = router_id
         self.bgp_config['neighbors'] = []
         self.bgp_config['adv_prefixes'] = []
+        self.persist_config()
         return (True, 'Success')
 
     def bgp_add_neighbor(self, address, remote_as):
@@ -291,6 +292,7 @@ class SDNIPSApp(app_manager.RyuApp):
             return (False, 'Failed to add BGP neighbor')
         self.bgp_config['neighbors'].append({'address': address,
             'remote_as': remote_as})
+        self.persist_config()
         return (True, 'Success')
 
     def bgp_add_prefix(self, prefix):
@@ -299,6 +301,7 @@ class SDNIPSApp(app_manager.RyuApp):
         except:
             return (False, 'Failed to add prefix')
         self.bgp_config['adv_prefixes'].append(prefix)
+        self.persist_config()
         return (True, 'Success')
 
     def best_path_change_handler(self, event):
