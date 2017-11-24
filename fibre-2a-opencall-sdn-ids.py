@@ -58,6 +58,7 @@ class SDNIPSApp(app_manager.RyuApp):
         self.net = nx.DiGraph()
         wsgi = kwargs['wsgi']
         wsgi.register(SDNIPSWSGIApp,{myapp_name: self})
+        self.bgp_config = {}
         self.bgp_speaker = None
         self.rcv_prefixes = []
         self.flows = {}
@@ -91,14 +92,20 @@ class SDNIPSApp(app_manager.RyuApp):
                 self.add_flow(dp, flow['priority'],
                         flow['match'], flow['actions']):
 
-        # TODO: call specific methods to handle data
+        # Recreate BGP speaker
+        if 'as_number' in data['bgp'] and 'router_id' in  data['bgp']:
+            self.bgp_create(data['bgp']['as_number'], data['bgp']['router_id'])
+            for neigh in data['bgp'].get('neighbors', []):
+                self.bgp_add_neighbor(neigh['address'], neigh['remote_as'])
+            for prefix in data['bgp'].get('adv_prefixes', []):
+                self.bgp_add_prefix(prefix)
 
     def persist_config(self):
         data = {}
         # Topology information
         data['nodes'] = self.net.nodes()
         # BGP config
-        data['bgp'] = {}
+        data['bgp'] = self.bgp_config
         # OpenFlow rules
         data['flows'] = self.flows
 
