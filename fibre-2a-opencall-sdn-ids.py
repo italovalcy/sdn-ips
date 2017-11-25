@@ -351,6 +351,43 @@ class SDNIPSApp(app_manager.RyuApp):
 
         return(True, 'Success')
 
+    def flows_create_mirror(self, dpid, flows, target_sw, target_port):
+        try:
+            path = nx.shortest_path(self.net, dpid, target_sw)
+        except:
+            return (False, 'Failed to create mirror! Could not find a path from %s to %s' % (dpid_lib.dpid_to_str(dpid), dpid_lib.dpid_to_str(target_sw)))
+
+        # determine the first output port for remote mirroring
+        if len(path) == 1:
+            return (False, 'Failed to create mirror. Currently we dont support mirror to the same switch')
+
+        # for the first switch, we just modify the openflow rules adding a new action
+        # to output the traffic to the next switch (remote mirroring)
+        next_sw = path[1]
+        first_port = self.net.edge[dpid][next_sw]['sport']
+        for flow in flows:
+            self.flow_create_mirror(dpid, flow, first_port)
+
+        for i in range(1, len(path)):
+            sw = path[i]
+            dp = self.net.node[sw]['conn']
+            prev_sw = path[i-1]
+            match_in_port = self.net.edge[prev_sw][sw]['dport']
+
+            actions = []
+            if i == len(path)-1:
+                action_out_port = target_port
+                actions.append(dp.ofp_parser.OFPActionSetDlDst(mac_lib.haddr_to_bin('ff:ff:ff:ff:ff:ff')))
+            else:
+                next_sw = path[i+1]
+                action_out_port = self.net.edge[sw][next_sw]['sport']
+
+            match = {'in_port': match_in_port}
+            actions.append(dp.ofproto_parser.OFPActionOutput(action_out_port))
+            self.add_flow(dp, 65535, match, actions)
+
+        return(True, 'Success')
+
 class SDNIPSWSGIApp(ControllerBase):
     def __init__(self, req, link, data, **config):
         super(SDNIPSWSGIApp, self).__init__(req, link, data, **config)
@@ -510,10 +547,10 @@ class SDNIPSWSGIApp(ControllerBase):
         try:
             params = req.json
             assert 'flows' in params
-            assert 'to_port' in params
+            assert 'to_target' in params
         except Exception as e:
             print "==> flows_create_mirror error: %s -- request=%s" % (e, req)
-            details = 'Missing parameters - flows, to_port'
+            details = 'Missing parameters - flows, to_target'
             msg = {REST_RESULT: REST_NG, REST_DETAILS: details}
             return Response(status=400, body=json.dumps(msg))
 
@@ -522,6 +559,17 @@ class SDNIPSWSGIApp(ControllerBase):
             details = 'switch not found - invalid dpid'
             msg = {REST_RESULT: REST_NG, REST_DETAILS: details}
             return Response(status=404, body=json.dumps(msg))
+
+        try:
+            target_sw, target_port = params['to_target'].split(':')
+            target_sw = dpid_lib.str_to_dpid(target_sw)
+            assert target_sw in self.myapp.net.nodes()
+            target_port = int(target_port)
+            assert target_port in self.myapp.get_access_ports(target_sw)
+        except:
+            details = 'Invalid to_target parameter. Format: to_target : "dpid:port"'
+            msg = {REST_RESULT: REST_NG, REST_DETAILS: details}
+            return Response(status=400, body=json.dumps(msg))
 
         installed_flows = []
         installed_actions = []
@@ -544,16 +592,8 @@ class SDNIPSWSGIApp(ControllerBase):
                 msg = {REST_RESULT: REST_NG, REST_DETAILS: details}
                 return Response(status=404, body=json.dumps(msg))
 
-        if params['to_port'] not in access_ports:
-            details = 'invalid to_port specified (not an access port): %s' % (params['to_port'])
-            msg = {REST_RESULT: REST_NG, REST_DETAILS: details}
-            return Response(status=404, body=json.dumps(msg))
+        status, msg = self.myapp.flows_create_mirror(dpid, param['flows'], target_sw, target_port)
 
-        result = []
-        for flow in params['flows']:
-            status, msg = self.myapp.flow_create_mirror(dpid, flow, params['to_port'])
-            result.append({'flow': {'match':flow['match'], 'priority':flow['priority']}, 'status': msg})
-
-        body = json.dumps(result)
+        body = json.dumps(msg)
 
         return Response(content_type='application/json', body=body)
