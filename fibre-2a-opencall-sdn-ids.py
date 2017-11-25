@@ -531,6 +531,9 @@ class SDNIPSWSGIApp(ControllerBase):
 
         access_ports = self.myapp.get_access_ports(dpid)
 
+        if params['flows'] == 'all':
+            params['flows'] = installed_flows
+
         # sanity checks
         for flow in params['flows']:
             try:
