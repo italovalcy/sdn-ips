@@ -82,7 +82,7 @@ class SDNIPSApp(app_manager.RyuApp):
             retry += 1
 
         if retry == 10:
-            print "Could not load config because some nodes are missing!"
+            print "Could not load config because some nodes are missing or topology is different!"
             return
 
         # Reinstall flows
@@ -90,7 +90,7 @@ class SDNIPSApp(app_manager.RyuApp):
             for flow in data[dpid]:
                 dp = self.net.node[dpid]['conn']
                 self.add_flow(dp, flow['priority'],
-                        flow['match'], flow['actions']):
+                        flow['match'], flow['actions'])
 
         # Recreate BGP speaker
         if 'as_number' in data['bgp'] and 'router_id' in  data['bgp']:
