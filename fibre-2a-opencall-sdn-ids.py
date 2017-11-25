@@ -73,7 +73,7 @@ class SDNIPSApp(app_manager.RyuApp):
         try:
             with open('sdn-ips-config.json', 'r') as fp:
                 data = json.load(fp)
-        except Exception e:
+        except Exception as e:
             print "Fail to load SDN-IPS config. Error: %s" % (e)
 
         retry=0
@@ -112,7 +112,7 @@ class SDNIPSApp(app_manager.RyuApp):
         try:
             with open('sdn-ips-config.json', 'w') as fp:
                 json.dump(data, fp, indent=4)
-        except Exception e:
+        except Exception as e:
             print "Fail to save SDN-IPS config! Error: %s" % (e)
 
     @set_ev_cls(dpset.EventDP, dpset.DPSET_EV_DISPATCHER)
