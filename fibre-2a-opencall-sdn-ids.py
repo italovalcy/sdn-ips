@@ -75,6 +75,7 @@ class SDNIPSApp(app_manager.RyuApp):
                 data = json.load(fp)
         except Exception as e:
             print "Fail to load SDN-IPS config. Error: %s" % (e)
+            return
 
         retry=0
         while set(data['nodes']) != set(self.net.nodes()) and retry < 10:
@@ -377,7 +378,7 @@ class SDNIPSApp(app_manager.RyuApp):
             actions = []
             if i == len(path)-1:
                 action_out_port = target_port
-                actions.append(dp.ofp_parser.OFPActionSetDlDst(mac_lib.haddr_to_bin('ff:ff:ff:ff:ff:ff')))
+                actions.append(dp.ofproto_parser.OFPActionSetDlDst(mac.haddr_to_bin('ff:ff:ff:ff:ff:ff')))
             else:
                 next_sw = path[i+1]
                 action_out_port = self.net.edge[sw][next_sw]['sport']
@@ -592,7 +593,7 @@ class SDNIPSWSGIApp(ControllerBase):
                 msg = {REST_RESULT: REST_NG, REST_DETAILS: details}
                 return Response(status=404, body=json.dumps(msg))
 
-        status, msg = self.myapp.flows_create_mirror(dpid, param['flows'], target_sw, target_port)
+        status, msg = self.myapp.flows_create_mirror(dpid, params['flows'], target_sw, target_port)
 
         body = json.dumps(msg)
 
