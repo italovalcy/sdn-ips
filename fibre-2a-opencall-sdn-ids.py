@@ -260,13 +260,13 @@ class SDNIPSApp(app_manager.RyuApp):
             self.logger.info("==> add_flow sw=%s (->) in_port=%s vlanid=%d action_out_port=%s", sw, match_in_port, vlanid, action_out_port)
             match = {'in_port': match_in_port, 'dl_vlan':vlanid}
             actions = [dp.ofproto_parser.OFPActionOutput(action_out_port)]
-            self.add_flow(dp, 65535, match, actions)
+            self.add_flow(dp, 65533, match, actions)
             # uniB -> uniA
             match_in_port, action_out_port = action_out_port, match_in_port
             self.logger.info("==> add_flow sw=%s (<-) in_port=%s vlanid=%d action_out_port=%s", sw, match_in_port, vlanid, action_out_port)
             match = {'in_port':match_in_port, 'dl_vlan':vlanid}
             actions = [dp.ofproto_parser.OFPActionOutput(action_out_port)]
-            self.add_flow(dp, 65535, match, actions)
+            self.add_flow(dp, 65533, match, actions)
 
         return (True, 'Success')
 
@@ -385,9 +385,21 @@ class SDNIPSApp(app_manager.RyuApp):
 
             match = {'in_port': match_in_port}
             actions.append(dp.ofproto_parser.OFPActionOutput(action_out_port))
-            self.add_flow(dp, 65535, match, actions)
+            self.add_flow(dp, 65533, match, actions)
 
         return(True, 'Success')
+
+    def contention_quarantine(self, ipaddr, redirect_to):
+        actions = []
+        actions.append(dp.ofproto_parser.OFPActionSetNwDst(redirect_to))
+        actions.append(dp.ofproto_parser.OFPActionOutput(ofproto_v1_0.OFPP_TABLE))
+        for sw in self.net.nodes():
+            for port in self.get_access_ports(sw):
+                dp = self.net.node[dpid]['conn']
+                match = {'in_port': port, 'nw_src': ipaddr}
+                self.add_flow(dp, 65534, match, actions)
+        return (True, 'Success')
+
 
 class SDNIPSWSGIApp(ControllerBase):
     def __init__(self, req, link, data, **config):
@@ -595,6 +607,25 @@ class SDNIPSWSGIApp(ControllerBase):
 
         status, msg = self.myapp.flows_create_mirror(dpid, params['flows'], target_sw, target_port)
 
-        body = json.dumps(msg)
+        body = json.dumps([msg])
+
+        return Response(content_type='application/json', body=body)
+
+    @route(myapp_name, base_url + '/contention/quarantine', methods=['POST'])
+    def contention_quarantine(self, req, **kwargs):
+        try:
+            params = req.json
+            assert 'ipaddr' in params
+            assert 'redirect_to' in params
+            socket.inet_aton(str(params['ipaddr']))
+            socket.inet_aton(str(params['redirect_to']))
+        except Exception as e:
+            details = 'Missing or invalid parameters - ipaddr'
+            msg = {REST_RESULT: REST_NG, REST_DETAILS: details}
+            return Response(status=400, body=json.dumps(msg))
+
+        status, msg = self.myapp.contention_quarantine(params['ipaddr'], params['redirect_to'])
+
+        body = json.dumps([msg])
 
         return Response(content_type='application/json', body=body)
