@@ -27,6 +27,7 @@ from ryu.lib.packet import packet
 from ryu.lib.packet import ethernet
 from ryu.lib.packet import ether_types
 from ryu.lib.packet import arp
+from ryu.lib.packet import ipv4
 from ryu.ofproto import ether
 from ryu.topology import event, switches
 from ryu.topology.api import get_switch, get_link
@@ -62,6 +63,7 @@ class SDNIPSApp(app_manager.RyuApp):
         self.bgp_speaker = None
         self.rcv_prefixes = []
         self.flows = {}
+        self.quarantine = {}
         load_config_thread = Thread(target=self.load_config, args=())
         load_config_thread.start()
 
@@ -177,6 +179,11 @@ class SDNIPSApp(app_manager.RyuApp):
         eth_pkt = pkt.get_protocol(ethernet.ethernet)
 
         if eth_pkt.ethertype == ether_types.ETH_TYPE_LLDP:
+            return
+
+        ip_pkt = pkt.get_protocol(ipv4.ipv4)
+        if ip_pkt and str(ip_pkt.src) in self.quarantine:
+            self.contention_quarantine_redirect(msg.datapath, ip_pkt)
             return
 
         print "PacketIn dpid=%s inport=%s src=%s dst=%s ethertype=0x%04x" % \
@@ -403,6 +410,13 @@ class SDNIPSApp(app_manager.RyuApp):
                 match = {'in_port': port, 'dl_vlan_pcp': 0, 'nw_src': ipaddr}
                 self.add_flow(dp, 65534, match, actions)
         return (True, 'Success')
+
+    def contention_quarantine_redirect(self, dp, ip_pkt):
+                match = {'in_port': port, 'dl_vlan_pcp': 0, 'nw_src': ipaddr}
+        # TODO:
+        #  - match pela porta de entrada, ip de origem e ip de destino
+        #  - 
+        pass
 
 
 class SDNIPSWSGIApp(ControllerBase):
