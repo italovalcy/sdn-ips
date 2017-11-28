@@ -397,7 +397,7 @@ class SDNIPSApp(app_manager.RyuApp):
             dp = self.net.node[sw]['conn']
             actions = []
             actions.append(dp.ofproto_parser.OFPActionSetNwDst(redirect_to))
-            actions.append(dp.ofproto_parser.OFPActionVlanPcp(1))
+            actions.append(dp.ofproto_parser.OFPActionSetNwTos(1))
             actions.append(dp.ofproto_parser.OFPActionOutput(dp.ofproto.OFPP_TABLE))
             for port in self.get_access_ports(sw):
                 match = {'in_port': port, 'nw_tos': 0, 'nw_src': ipaddr}
