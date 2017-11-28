@@ -182,8 +182,9 @@ class SDNIPSApp(app_manager.RyuApp):
             return
 
         ip_pkt = pkt.get_protocol(ipv4.ipv4)
-        if ip_pkt and str(ip_pkt.src) in self.quarantine:
-            self.contention_quarantine_redirect(msg.datapath, ip_pkt)
+        redirect_to = self.quarantine.get(str(ip_pkt.src), None)
+        if ip_pkt and redirect_to:
+            self.contention_quarantine_redirect(msg.datapath, ip_pkt, redirect_to)
             return
 
         print "PacketIn dpid=%s inport=%s src=%s dst=%s ethertype=0x%04x" % \
@@ -197,12 +198,13 @@ class SDNIPSApp(app_manager.RyuApp):
             ports.remove(self.net.edge[sw][e]['sport'])
         return ports
 
-    def add_flow(self, datapath, priority, match, actions, visible=True):
+    def add_flow(self, datapath, priority, match, actions, idle_timeout=0, visible=True):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
 
         match_ofp = self.build_match(datapath, **match)
         mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
+                                idle_timeout=idle_timeout,
                                 match=match_ofp, actions=actions)
         datapath.send_msg(mod)
 
@@ -402,21 +404,27 @@ class SDNIPSApp(app_manager.RyuApp):
     def contention_quarantine(self, ipaddr, redirect_to):
         for sw in self.net.nodes():
             dp = self.net.node[sw]['conn']
-            actions = []
-            actions.append(dp.ofproto_parser.OFPActionSetNwDst(redirect_to))
-            actions.append(dp.ofproto_parser.OFPActionSetNwTos(1))
-            actions.append(dp.ofproto_parser.OFPActionOutput(dp.ofproto.OFPP_TABLE))
+            actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER)]
             for port in self.get_access_ports(sw):
                 match = {'in_port': port, 'nw_tos': 0, 'nw_src': ipaddr}
                 self.add_flow(dp, 65534, match, actions)
+        self.quarantine[ipaddr] = redirect_to
         return (True, 'Success')
 
-    def contention_quarantine_redirect(self, dp, ip_pkt):
-                match = {'in_port': port, 'dl_vlan_pcp': 0, 'nw_src': ipaddr}
-        # TODO:
-        #  - match pela porta de entrada, ip de origem e ip de destino
-        #  - 
-        pass
+    def contention_quarantine_redirect(self, dp, ip_pkt, redirect_to):
+        match = {'nw_src': ip_pkt.src, 'nw_dst': ip_pkt.dst, 'nw_tos': 0}
+        actions = []
+        actions.append(dp.ofproto_parser.OFPActionSetNwDst(redirect_to))
+        actions.append(dp.ofproto_parser.OFPActionSetNwTos(1))
+        actions.append(dp.ofproto_parser.OFPActionOutput(dp.ofproto.OFPP_TABLE))
+        self.add_flow(dp, 65535, match, actions, idle_timeout=60)
+
+        match = {'nw_src': redirect_to, 'nw_dst': ip_pkt.src, 'nw_tos': 1}
+        actions = []
+        actions.append(dp.ofproto_parser.OFPActionSetNwSrc(ip_pkt.dst))
+        actions.append(dp.ofproto_parser.OFPActionSetNwTos(0))
+        actions.append(dp.ofproto_parser.OFPActionOutput(dp.ofproto.OFPP_TABLE))
+        self.add_flow(dp, 65535, match, actions, idle_timeout=60)
 
 
 class SDNIPSWSGIApp(ControllerBase):
