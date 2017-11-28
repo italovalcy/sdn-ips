@@ -40,6 +40,7 @@ from webob import Response
 import networkx as nx
 import json
 import socket, os
+import struct
 from threading import Thread
 from time import sleep
 
@@ -50,6 +51,11 @@ REST_RESULT = 'result'
 REST_DETAILS = 'details'
 REST_OK = 'Success'
 REST_NG = 'failure'
+
+def ipv4_text_to_int(ip_text):
+    if ip_text == 0 or not isinstance(ip_text, str):
+        return ip_text
+    return struct.unpack('!I', addrconv.ipv4.text_to_bin(ip_text))[0]
 
 class SDNIPSApp(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_0.OFP_VERSION]
@@ -419,7 +425,7 @@ class SDNIPSApp(app_manager.RyuApp):
                 for vlan in self.eline_vlans:
                     # the dl_vlan match is a workaround because flowvisor seems to bug when using
                     # dl_type=0x0800
-                    match = {'in_port': port, 'nw_tos': 0, 'dl_type': 0x0800, 'dl_vlan': vlan, 'nw_src': ipaddr}
+                    match = {'in_port': port, 'dl_type': 0x0800, 'dl_vlan': vlan, 'nw_src': ipaddr}
                     self.add_flow(dp, 65534, match, actions)
         self.quarantine[ipaddr] = redirect_to
         return (True, 'Success')
@@ -429,17 +435,17 @@ class SDNIPSApp(app_manager.RyuApp):
         # the dl_vlan match is a workaround because flowvisor seems to bug when using
         # dl_type=0x0800
         for vlan in self.eline_vlans:
-            match = {'nw_src': ip_pkt.src, 'nw_dst': ip_pkt.dst, 'nw_tos': 0, 'dl_type': 0x0800, 'dl_vlan': vlan}
+            match = {'nw_src': ip_pkt.src, 'nw_dst': ip_pkt.dst, 'dl_type': 0x0800, 'dl_vlan': vlan}
             actions = []
             actions.append(dp.ofproto_parser.OFPActionSetNwDst(redirect_to))
-            actions.append(dp.ofproto_parser.OFPActionSetNwTos(182))
+            #actions.append(dp.ofproto_parser.OFPActionSetNwTos(182))
             actions.append(dp.ofproto_parser.OFPActionOutput(dp.ofproto.OFPP_TABLE))
             self.add_flow(dp, 65535, match, actions, idle_timeout=60)
 
-            match = {'nw_src': redirect_to, 'nw_dst': ip_pkt.src, 'nw_tos': 182, 'dl_type': 0x0800, 'dl_vlan': vlan}
+            match = {'nw_src': ipv4_text_to_int(redirect_to), 'nw_dst': ip_pkt.src, 'dl_type': 0x0800, 'dl_vlan': vlan}
             actions = []
-            actions.append(dp.ofproto_parser.OFPActionSetNwSrc(ip_pkt.dst))
-            actions.append(dp.ofproto_parser.OFPActionSetNwTos(0))
+            actions.append(dp.ofproto_parser.OFPActionSetNwSrc(str(ip_pkt.dst)))
+            #actions.append(dp.ofproto_parser.OFPActionSetNwTos(0))
             actions.append(dp.ofproto_parser.OFPActionOutput(dp.ofproto.OFPP_TABLE))
             self.add_flow(dp, 65535, match, actions, idle_timeout=60)
 
