@@ -206,11 +206,12 @@ class SDNIPSApp(app_manager.RyuApp):
 
     def build_match(self, datapath, in_port=0, dl_type=0, dl_src=0, dl_dst=0, 
                  dl_vlan=0,nw_src=0, src_mask=32, nw_dst=0, dst_mask=32,
-                 nw_proto=0):
+                 nw_proto=0, dl_vlan_pcp=None):
         ofp = datapath.ofproto
         ofp_parser = datapath.ofproto_parser
         
         # Match
+        dl_vlan_pcp = 0
         wildcards = ofp.OFPFW_ALL
         if in_port:
             wildcards &= ~ofp.OFPFW_IN_PORT
@@ -222,6 +223,8 @@ class SDNIPSApp(app_manager.RyuApp):
             wildcards &= ~ofp.OFPFW_DL_DST
         if dl_vlan:
             wildcards &= ~ofp.OFPFW_DL_VLAN
+        if dl_vlan_pcp:
+            wildcards &= ~ofp.OFPFW_DL_VLAN_PCP
         if nw_src:
             v = (32 - src_mask) << ofp.OFPFW_NW_SRC_SHIFT | \
                 ~ofp.OFPFW_NW_SRC_MASK
@@ -233,7 +236,7 @@ class SDNIPSApp(app_manager.RyuApp):
         if nw_proto:
             wildcards &= ~ofp.OFPFW_NW_PROTO
 
-        match = ofp_parser.OFPMatch(wildcards, in_port, dl_src, dl_dst, dl_vlan, 0,
+        match = ofp_parser.OFPMatch(wildcards, in_port, dl_src, dl_dst, dl_vlan, dl_vlan_pcp,
                                     dl_type, 0, nw_proto,
                                     nw_src, nw_dst, 0, 0, src_mask, dst_mask)
         return match
@@ -390,13 +393,14 @@ class SDNIPSApp(app_manager.RyuApp):
         return(True, 'Success')
 
     def contention_quarantine(self, ipaddr, redirect_to):
-        actions = []
-        actions.append(dp.ofproto_parser.OFPActionSetNwDst(redirect_to))
-        actions.append(dp.ofproto_parser.OFPActionOutput(ofproto_v1_0.OFPP_TABLE))
         for sw in self.net.nodes():
+            dp = self.net.node[sw]['conn']
+            actions = []
+            actions.append(dp.ofproto_parser.OFPActionSetNwDst(redirect_to))
+            actions.append(dp.ofproto_parser.OFPActionVlanPcp(1))
+            actions.append(dp.ofproto_parser.OFPActionOutput(dp.ofproto.OFPP_TABLE))
             for port in self.get_access_ports(sw):
-                dp = self.net.node[dpid]['conn']
-                match = {'in_port': port, 'nw_src': ipaddr}
+                match = {'in_port': port, 'dl_vlan_pcp': 0, 'nw_src': ipaddr}
                 self.add_flow(dp, 65534, match, actions)
         return (True, 'Success')
 
