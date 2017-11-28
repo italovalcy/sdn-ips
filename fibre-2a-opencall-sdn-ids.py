@@ -28,6 +28,7 @@ from ryu.lib.packet import ethernet
 from ryu.lib.packet import ether_types
 from ryu.lib.packet import arp
 from ryu.lib.packet import ipv4
+from ryu.lib.packet import vlan
 from ryu.ofproto import ether
 from ryu.topology import event, switches
 from ryu.topology.api import get_switch, get_link
@@ -59,6 +60,7 @@ class SDNIPSApp(app_manager.RyuApp):
         self.net = nx.DiGraph()
         wsgi = kwargs['wsgi']
         wsgi.register(SDNIPSWSGIApp,{myapp_name: self})
+        self.eline_vlans = []
         self.bgp_config = {}
         self.bgp_speaker = None
         self.rcv_prefixes = []
@@ -182,9 +184,14 @@ class SDNIPSApp(app_manager.RyuApp):
             return
 
         ip_pkt = pkt.get_protocol(ipv4.ipv4)
-        redirect_to = self.quarantine.get(str(ip_pkt.src), None)
-        if ip_pkt and redirect_to:
-            self.contention_quarantine_redirect(msg.datapath, ip_pkt, redirect_to)
+        print "ip_pkt=%s" % (ip_pkt)
+        if ip_pkt and str(ip_pkt.src) in self.quarantine:
+            vlan_pkt = pkt.get_protocol(vlan.vlan)
+            vlan_id = 0
+            if vlan_pkt:
+                vlan_id = vlan_pkt.vid
+            redirect_to = self.quarantine[str(ip_pkt.src)]
+            self.contention_quarantine_redirect(msg.datapath, ip_pkt, redirect_to, vlan_id)
             return
 
         print "PacketIn dpid=%s inport=%s src=%s dst=%s ethertype=0x%04x" % \
@@ -279,6 +286,9 @@ class SDNIPSApp(app_manager.RyuApp):
             match = {'in_port':match_in_port, 'dl_vlan':vlanid}
             actions = [dp.ofproto_parser.OFPActionOutput(action_out_port)]
             self.add_flow(dp, 65533, match, actions)
+
+        if vlanid not in self.eline_vlans:
+            self.eline_vlans.append(vlanid)
 
         return (True, 'Success')
 
@@ -404,27 +414,34 @@ class SDNIPSApp(app_manager.RyuApp):
     def contention_quarantine(self, ipaddr, redirect_to):
         for sw in self.net.nodes():
             dp = self.net.node[sw]['conn']
-            actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER)]
+            actions = [dp.ofproto_parser.OFPActionOutput(dp.ofproto.OFPP_CONTROLLER)]
             for port in self.get_access_ports(sw):
-                match = {'in_port': port, 'nw_tos': 0, 'nw_src': ipaddr}
-                self.add_flow(dp, 65534, match, actions)
+                for vlan in self.eline_vlans:
+                    # the dl_vlan match is a workaround because flowvisor seems to bug when using
+                    # dl_type=0x0800
+                    match = {'in_port': port, 'nw_tos': 0, 'dl_type': 0x0800, 'dl_vlan': vlan, 'nw_src': ipaddr}
+                    self.add_flow(dp, 65534, match, actions)
         self.quarantine[ipaddr] = redirect_to
         return (True, 'Success')
 
-    def contention_quarantine_redirect(self, dp, ip_pkt, redirect_to):
-        match = {'nw_src': ip_pkt.src, 'nw_dst': ip_pkt.dst, 'nw_tos': 0}
-        actions = []
-        actions.append(dp.ofproto_parser.OFPActionSetNwDst(redirect_to))
-        actions.append(dp.ofproto_parser.OFPActionSetNwTos(1))
-        actions.append(dp.ofproto_parser.OFPActionOutput(dp.ofproto.OFPP_TABLE))
-        self.add_flow(dp, 65535, match, actions, idle_timeout=60)
+    def contention_quarantine_redirect(self, dp, ip_pkt, redirect_to, vlan_id):
+        print "==> create contention_quarantine_redirect in dpid=%s src=%s dst=%s redirect_to=%s" % (dpid_lib.dpid_to_str(dp.id), ip_pkt.src, ip_pkt.dst,  redirect_to)
+        # the dl_vlan match is a workaround because flowvisor seems to bug when using
+        # dl_type=0x0800
+        for vlan in self.eline_vlans:
+            match = {'nw_src': ip_pkt.src, 'nw_dst': ip_pkt.dst, 'nw_tos': 0, 'dl_type': 0x0800, 'dl_vlan': vlan}
+            actions = []
+            actions.append(dp.ofproto_parser.OFPActionSetNwDst(redirect_to))
+            actions.append(dp.ofproto_parser.OFPActionSetNwTos(182))
+            actions.append(dp.ofproto_parser.OFPActionOutput(dp.ofproto.OFPP_TABLE))
+            self.add_flow(dp, 65535, match, actions, idle_timeout=60)
 
-        match = {'nw_src': redirect_to, 'nw_dst': ip_pkt.src, 'nw_tos': 1}
-        actions = []
-        actions.append(dp.ofproto_parser.OFPActionSetNwSrc(ip_pkt.dst))
-        actions.append(dp.ofproto_parser.OFPActionSetNwTos(0))
-        actions.append(dp.ofproto_parser.OFPActionOutput(dp.ofproto.OFPP_TABLE))
-        self.add_flow(dp, 65535, match, actions, idle_timeout=60)
+            match = {'nw_src': redirect_to, 'nw_dst': ip_pkt.src, 'nw_tos': 182, 'dl_type': 0x0800, 'dl_vlan': vlan}
+            actions = []
+            actions.append(dp.ofproto_parser.OFPActionSetNwSrc(ip_pkt.dst))
+            actions.append(dp.ofproto_parser.OFPActionSetNwTos(0))
+            actions.append(dp.ofproto_parser.OFPActionOutput(dp.ofproto.OFPP_TABLE))
+            self.add_flow(dp, 65535, match, actions, idle_timeout=60)
 
 
 class SDNIPSWSGIApp(ControllerBase):
