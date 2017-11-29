@@ -1,6 +1,5 @@
 #!/bin/bash
 
-CONTROLLER=X.Y.Z.W
 IP=$1
 INT=$2
 
@@ -12,12 +11,16 @@ for net in egrep "^[ \t]+HOME_NET" /etc/suricata/suricata.yaml | egrep -o "[0-9.
 	fi
 done
 
+CONTROLLER=$(grep "^RemoteController" /etc/guardian.conf | awk '{print $2}')
+
 case $ACTION in:
 	unblock)
-      curl -s -X POST -d "{\"ipaddr\": \"$IP\"}" http://$CONTROLLER:8080/sdnips/contention/unblock
+      # not implemented
+      #curl -s -X POST -d "{\"ipaddr\": \"$IP\"}" http://$CONTROLLER:8080/sdnips/contention/unblock
 	;;
 	unquarantine)
-      curl -s -X POST -d "{\"ipaddr\": \"$IP\"}" http://$CONTROLLER:8080/sdnips/contention/quarantine
+      # not implemented
+      #curl -s -X POST -d "{\"ipaddr\": \"$IP\"}" http://$CONTROLLER:8080/sdnips/contention/quarantine
 	;;
 	*)
 		print "Unknown action, exiting.."

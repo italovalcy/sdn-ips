@@ -1,6 +1,5 @@
 #!/bin/bash
 
-CONTROLLER=X.Y.Z.W
 IP=$1
 INT=$2
 
@@ -11,6 +10,8 @@ for net in egrep "^[ \t]+HOME_NET" /etc/suricata/suricata.yaml | egrep -o "[0-9.
 		break
 	fi
 done
+
+CONTROLLER=$(grep "^RemoteController" /etc/guardian.conf | awk '{print $2}')
 
 case $ACTION in:
 	block)
