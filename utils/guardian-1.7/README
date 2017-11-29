@@ -1,0 +1,140 @@
+Guardian 1.7
+  1. Rewrote the syslog parsing routine. Now it should work on just about
+     any syslog/snortlib version (As long as the attacker's ip address comes
+     first. It is also much cleaner, and from some tests, seems to be a 
+     hair faster.
+  2. Also fixed a bug which caused guardian not to catch portscans reported
+     by snort.
+
+Guardian 1.6.3 (never officially released)
+  1. Added support for watching for more than one IP address. To do this,
+     a new option has been added to the guardian.conf file:
+   
+TargetFile /etc/guardian.target
+
+     The file should contain a list of IP addresses which are local IP 
+     addresses. The format is the same as the IgnoreFile. This is useful 
+     for people who are hosting several IP addresses from one machine. 
+     It might also be useful for poeple who are running snort/guardian on a
+     firewall. 
+
+     This will also only place a block on the interface which is defined in
+     the guardian.conf ..
+
+Guardian 1.6.2
+  1. Support added for syslog rotation. Previously, guardian would not reopen
+     the syslog file if it got rotated. This does not mean that there is 
+     support for rotating the guardian log itself. This will be supported 
+     in a future version. 
+  2. Added block/unblock script for ipfwadm (useful for older linux kernels)
+  3. Bug fixes. Thanks to brian@unearthed.org for pointing them out. 
+
+  Next release will have a revamped syslog parser, since I am really not 
+  with the current setup, and it doesn't seem to work for everyone. 
+
+Guardian 1.6.1
+
+  1. Added scripts for ipfwadm for linux
+  2. Fixed syslog parsing for newer snortlibs (while will get revamped in the
+     next release)
+
+Guardian 1.6
+Changes:
+
+  1. Now calls an external script for blocking ip addresses.
+  2. TimeLimit feature
+  3. Cleanup at exit
+
+
+1. Guardian is now more modular than ever. When it decides to block an IP 
+ip address, it calls a script called "guardian_block.sh" . I have included
+several sample scripts in the scripts directory of the Guardian package. 
+The biggest benifit of this is that now you can have this script do whatever 
+you like, from paging you, sending you email, or even to launch a 
+counterattack (although I do not support or encourage such actions). 
+
+The "guardian_block.sh" script must exist in your path. If it does not, 
+then guardian will exit, and tell you what you need to do. 
+
+2. The TimeLimit feature is designed to keep down the number of hosts actively
+being blocked. To use it, add a line in your guardian.conf file that has the 
+time in seconds you want to block a host for. If this line does not exist, it 
+will default to 99999999 seconds, which effectivly turns off this feature.
+For this feature, you will also need a "guardian_unblock.sh" script in your 
+path. See the scripts directory for example unblock scripts. If this feature
+is enabled, and the script does not exist, you will probably see a performance
+impact. This will be addressed in a future release of guardian. 
+
+3. When guardian exits (via a kill command), it will clear all the blocked 
+addresses. 
+
+
+----------------------------------------------------------------------------
+FAQ:
+1. What is guardian?
+2. Blocking based on IDS results? What about false positives?
+3. Are there any risks with running this?
+4. How do I set it up?
+
+1. What is guardian? 
+
+Guardian is a security tool which will issue commands to the OS to block
+ip addresses which attacks may be coming from. Guardian requires an IDS 
+(Intrusion detection system), and currently only works with snort. Future 
+releases will work with other systems. 
+
+2. Blocking based on IDS results!? What about false positives?
+
+The idea behind guardian is that it's better to be safe than sorry. It also
+assumes that you know how to configure the IDS so that false positives are 
+minimized. Guardian also has a list of ip addresses which should not be blocked.
+This list is user definable. The filename is called "guardian.ignore". More on 
+that later.
+
+3. Are there any risks with running this?
+
+Yes, there are risks.. The biggest risk is misconfiguration and false positives.
+If you don't have a good ignore list, chances are really good that an host will
+get blocked that you didn't want blocked. Most common (in my experence) is 
+nameservers getting blocked. Running guardian on a system with DHCP can be 
+tricky as well, since your IP address, name servers, gateway, etc can change
+without you knowing. 
+
+4. How do I set it up?
+
+The first thing you need to do is install and run an IDS. Guardian currently
+supports only snort (www.snort.org). If you are wanting to run guardian, I
+HIGHLY suggest you run snort for about a week, and see how many rules generate
+false positives. You will want to remove the rules which generate a lot of
+noise, since currently, guardian will block every IP address that generates an
+alert.
+
+Btw, another future enhancement is to take advantage to the severity levels in
+the snort alerts. But for now, we won't deal with them.
+
+Now that snort is running and you are comfortable with the alerts it is
+generating, it's time to set up guardian.
+
+First, edit the guardian.conf file. Everything in there is documented. When 
+you are done, copy this file to /etc .. Now create /etc/guardian.ignore (or
+whatever you called the guardian ignore file in the guardian.conf). A good 
+start of stuff to add to the guardian.ignore file is your DNS servers, your 
+gateway (although this is done magicly anyways), and any other servers which
+you know access your machine.
+
+The next thing to do is copy guardian.pl to it's final location. I use 
+/usr/local/bin, but you can use anything you want. Then you need to install
+the block and unblock scripts. There are examples in the scripts directory, 
+which should be usable if you have ipchains or iptables. Otherwise, you will
+need to write your own script. Check the main guardian web page for added
+block and unblock scripts. The block script must be named "guardian_block.sh",
+and the unblock must be named "guardian_unblock.sh" .. These scripts must 
+exist in your path. 
+
+That should be just about everything. Run guardian with the following command:
+
+# guardian.pl -c /etc/guardian.conf
+
+This tells guardian to use /etc/guardian.conf as it's configuration file. 
+
+You should probably put that command in your system startup files.. 
