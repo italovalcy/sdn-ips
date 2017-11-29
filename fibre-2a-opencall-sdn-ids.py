@@ -440,6 +440,18 @@ class SDNIPSApp(app_manager.RyuApp):
         self.quarantine[ipaddr] = redirect_to
         return (True, 'Success')
 
+    def contention_block(self, ipaddr):
+        actions = []
+        for sw in self.net.nodes():
+            dp = self.net.node[sw]['conn']
+            for port in self.get_access_ports(sw):
+                for vlan in self.eline_map:
+                    # the dl_vlan match is a workaround because flowvisor seems to bug when using
+                    # dl_type=0x0800
+                    match = {'in_port': port, 'dl_type': 0x0800, 'dl_vlan': vlan, 'nw_src': ipaddr}
+                    self.add_flow(dp, 65534, match, actions)
+        return (True, 'Success')
+
     def contention_quarantine_redirect(self, dp, ip_pkt, redirect_to, vlan_id):
         print "==> create contention_quarantine_redirect in dpid=%s src=%s dst=%s redirect_to=%s" % (dpid_lib.dpid_to_str(dp.id), ip_pkt.src, ip_pkt.dst,  redirect_to)
         # the dl_vlan match is a workaround because flowvisor seems to bug when using
@@ -681,6 +693,23 @@ class SDNIPSWSGIApp(ControllerBase):
             return Response(status=400, body=json.dumps(msg))
 
         status, msg = self.myapp.contention_quarantine(params['ipaddr'], params['redirect_to'])
+
+        body = json.dumps([msg])
+
+        return Response(content_type='application/json', body=body)
+
+    @route(myapp_name, base_url + '/contention/block', methods=['POST'])
+    def contention_block(self, req, **kwargs):
+        try:
+            params = req.json
+            assert 'ipaddr' in params
+            socket.inet_aton(str(params['ipaddr']))
+        except Exception as e:
+            details = 'Missing or invalid parameters - ipaddr'
+            msg = {REST_RESULT: REST_NG, REST_DETAILS: details}
+            return Response(status=400, body=json.dumps(msg))
+
+        status, msg = self.myapp.contention_block(params['ipaddr'])
 
         body = json.dumps([msg])
 
