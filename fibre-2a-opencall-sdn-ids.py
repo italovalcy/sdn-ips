@@ -190,7 +190,6 @@ class SDNIPSApp(app_manager.RyuApp):
             return
 
         ip_pkt = pkt.get_protocol(ipv4.ipv4)
-        print "ip_pkt=%s" % (ip_pkt)
         if ip_pkt and str(ip_pkt.src) in self.quarantine:
             vlan_pkt = pkt.get_protocol(vlan.vlan)
             vlan_id = 0
@@ -441,6 +440,7 @@ class SDNIPSApp(app_manager.RyuApp):
         return (True, 'Success')
 
     def contention_block(self, ipaddr):
+        print "==> contention_block ipaddr=%s in all switches" % (ipaddr)
         actions = []
         for sw in self.net.nodes():
             dp = self.net.node[sw]['conn']
