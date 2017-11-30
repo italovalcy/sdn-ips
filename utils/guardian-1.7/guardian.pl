@@ -7,9 +7,9 @@ $OS=`uname`;
 chomp $OS;
 print "OS shows $OS\n";
 
-require 'getopts.pl';
+use Getopt::Std;
 
-&Getopts ('hc:d');
+getopts ('hc:d');
 if (defined($opt_h)) {
  print "Guardian v1.7 \n";
  print "guardian.pl [-hd] <-c config>\n";
@@ -127,7 +127,7 @@ sub checkem {
      return 1;
   }
   # if the offending packet was sent to us, the network, or the broadcast, then
-  if ($targethash{$dest} == 1) {   
+  if ($targethash{$dest} == 1 || 1==1) {   
     &write_log("$date: ");
     &ipchain ($source, $dest, $type);
   }
