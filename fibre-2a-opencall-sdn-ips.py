@@ -308,13 +308,8 @@ class SDNIPSApp(app_manager.RyuApp):
         return (True, 'Success')
 
     def bgp_create(self, as_number, router_id):
-        try:
-            self.bgp_speaker = BGPSpeaker(as_number=as_number, router_id=router_id,
-                            best_path_change_handler=self.best_path_change_handler,
-                            peer_down_handler=self.peer_down_handler,
-                            peer_up_handler=self.peer_up_handler)
-        except:
-            return (False, 'Failed to create BGP speaker')
+        # MUDAR AQUI - INICIO
+        # MUDAR AQUI - FIM
 
         self.bgp_config['as_number'] = as_number
         self.bgp_config['router_id'] = router_id
@@ -324,20 +319,18 @@ class SDNIPSApp(app_manager.RyuApp):
         return (True, 'Success')
 
     def bgp_add_neighbor(self, address, remote_as):
-        try:
-            self.bgp_speaker.neighbor_add(address, remote_as)
-        except:
-            return (False, 'Failed to add BGP neighbor')
+        # MUDAR AQUI - INICIO
+        # MUDAR AQUI - FIM
+
         self.bgp_config['neighbors'].append({'address': address,
             'remote_as': remote_as})
         self.persist_config()
         return (True, 'Success')
 
     def bgp_add_prefix(self, prefix):
-        try:
-            self.bgp_speaker.prefix_add(prefix)
-        except:
-            return (False, 'Failed to add prefix')
+        # MUDAR AQUI - INICIO
+        # MUDAR AQUI - FIM
+
         self.bgp_config['adv_prefixes'].append(prefix)
         self.persist_config()
         return (True, 'Success')
