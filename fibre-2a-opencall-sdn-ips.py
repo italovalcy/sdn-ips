@@ -89,8 +89,10 @@ class SDNIPSApp(app_manager.RyuApp):
             return
 
         retry=0
+        sleep(15)
         while set(data['nodes']) != set(self.net.nodes()) and retry < 10:
-            sleep(30)
+            print "Nodes are missing or topology is different! Trying in 15s.."
+            sleep(15)
             retry += 1
 
         if retry == 10:
@@ -99,8 +101,8 @@ class SDNIPSApp(app_manager.RyuApp):
 
         # Reinstall flows
         for dpid in data.get('flows', []):
-            for flow in data[dpid]:
-                dp = self.net.node[dpid]['conn']
+            for flow in data['flows'][dpid]:
+                dp = self.net.node[int(dpid)]['conn']
                 self.add_flow(dp, flow['priority'],
                         flow['match'], flow['actions'])
 
