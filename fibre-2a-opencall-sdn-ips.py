@@ -39,6 +39,7 @@ from ryu.services.protocols.bgp.bgpspeaker import BGPSpeaker
 from webob import Response
 import networkx as nx
 import json
+import jsonpickle
 import socket, os
 import struct
 from threading import Thread
@@ -82,7 +83,7 @@ class SDNIPSApp(app_manager.RyuApp):
     def load_config(self):
         try:
             with open('sdn-ips-config.json', 'r') as fp:
-                data = json.load(fp)
+                data = jsonpickle.decode(fp.read())
         except Exception as e:
             print "Fail to load SDN-IPS config. Error: %s" % (e)
             return
@@ -122,7 +123,7 @@ class SDNIPSApp(app_manager.RyuApp):
 
         try:
             with open('sdn-ips-config.json', 'w') as fp:
-                json.dump(data, fp, indent=4)
+                fp.write(jsonpickle.encode(data))
         except Exception as e:
             print "Fail to save SDN-IPS config! Error: %s" % (e)
 
