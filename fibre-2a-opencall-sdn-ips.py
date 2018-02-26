@@ -42,6 +42,7 @@ import json
 import jsonpickle
 import socket, os
 import struct
+import re
 from threading import Thread
 from time import sleep
 
@@ -72,6 +73,7 @@ class SDNIPSApp(app_manager.RyuApp):
         self.bgp_speaker = None
         self.rcv_prefixes = []
         self.flows = {}
+        self.contention_vrf = {}
         self.quarantine = {}
         load_config_thread = Thread(target=self.load_config, args=())
         load_config_thread.start()
@@ -115,6 +117,9 @@ class SDNIPSApp(app_manager.RyuApp):
             for prefix in data['bgp'].get('adv_prefixes', []):
                 self.bgp_add_prefix(str(prefix))
 
+        # save contention VRF
+        self.contention_vrf = data['contention_vrf']
+
     def persist_config(self):
         data = {}
         # Topology information
@@ -123,6 +128,8 @@ class SDNIPSApp(app_manager.RyuApp):
         data['bgp'] = self.bgp_config
         # OpenFlow rules
         data['flows'] = self.flows
+        # Contention VRF
+        data['contention_vrf'] = self.contention_vrf
 
         try:
             with open('sdn-ips-config.json', 'w') as fp:
@@ -446,6 +453,19 @@ class SDNIPSApp(app_manager.RyuApp):
 
         return(True, 'Success')
 
+    # contention_add_vrf(rtcomm, nexthop)
+    #  - rtcomm: Route-Target Community, describes the VRF
+    #  - nexthop: ipv4 address which will be used for redirect
+    #
+    # Add a fake VRF which will be used just for traffic
+    # redirection to a nexthop. Usefull for FlowSpec redirect
+    # action, since draft-simpson-idr-flowspec-redirect-02 is
+    # not yet avaliable
+    def contention_add_vrf(self, rtcomm, nexthop):
+        self.contention_vrf[rtcomm] = nexthop
+        self.persist_config()
+        return(True, 'Success')
+
     def contention_quarantine(self, ipaddr, redirect_to):
         for sw in self.net.nodes():
             dp = self.net.node[sw]['conn']
@@ -697,6 +717,24 @@ class SDNIPSWSGIApp(ControllerBase):
 
         body = json.dumps([msg])
 
+        return Response(content_type='application/json', body=body)
+
+    @route(myapp_name, base_url + '/contention/add_vrf', methods=['POST'])
+    def contention_add_vrf(self, req, **kwargs):
+        try:
+            rtcomm = str(req.json['rtcomm'])
+            assert re.match("^[0-9]+:[0-9]+$", rtcomm)
+            nexthop = str(req.json['nexthop'])
+            socket.inet_aton(nexthop)
+        except Exception as e:
+            print "add_vrf error: %s" % (e)
+            details = 'Invalid address parameter'
+            msg = {REST_RESULT: REST_NG, REST_DETAILS: details}
+            return Response(status=400, body=json.dumps(msg))
+
+        status, msg = self.myapp.contention_add_vrf(rtcomm, nexthop)
+
+        body = json.dumps([msg])
         return Response(content_type='application/json', body=body)
 
     @route(myapp_name, base_url + '/contention/quarantine', methods=['POST'])
