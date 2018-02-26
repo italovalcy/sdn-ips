@@ -108,11 +108,12 @@ class SDNIPSApp(app_manager.RyuApp):
 
         # Recreate BGP speaker
         if 'as_number' in data['bgp'] and 'router_id' in  data['bgp']:
-            self.bgp_create(data['bgp']['as_number'], data['bgp']['router_id'])
+            self.bgp_create(data['bgp']['as_number'], str(data['bgp']['router_id']))
             for neigh in data['bgp'].get('neighbors', []):
-                self.bgp_add_neighbor(neigh['address'], neigh['remote_as'])
+                neigh['address'] = str(neigh['address'])
+                self.bgp_add_neighbor(**neigh)
             for prefix in data['bgp'].get('adv_prefixes', []):
-                self.bgp_add_prefix(prefix)
+                self.bgp_add_prefix(str(prefix))
 
     def persist_config(self):
         data = {}
