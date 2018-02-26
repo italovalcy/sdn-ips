@@ -234,7 +234,7 @@ class SDNIPSApp(app_manager.RyuApp):
 
     def build_match(self, datapath, in_port=0, dl_type=0, dl_src=0, dl_dst=0, 
                  dl_vlan=0,nw_src=0, src_mask=32, nw_dst=0, dst_mask=32,
-                 nw_proto=0, nw_tos=None):
+                 nw_proto=0, nw_tos=None, tp_src=0, tp_dst=0):
         ofp = datapath.ofproto
         ofp_parser = datapath.ofproto_parser
         
@@ -263,10 +263,14 @@ class SDNIPSApp(app_manager.RyuApp):
             wildcards &= v
         if nw_proto:
             wildcards &= ~ofp.OFPFW_NW_PROTO
+        if tp_src:
+            wildcards &= ~ofp.OFPFW_TP_SRC
+        if tp_dst:
+            wildcards &= ~ofp.OFPFW_TP_DST
 
         match = ofp_parser.OFPMatch(wildcards, in_port, dl_src, dl_dst, dl_vlan, 0,
                                     dl_type, nw_tos, nw_proto,
-                                    nw_src, nw_dst, 0, 0, src_mask, dst_mask)
+                                    nw_src, nw_dst, tp_src, tp_dst, src_mask, dst_mask)
         return match
 
     def create_eline(self, uniA_sw, uniA_port, uniB_sw, uniB_port, vlanid):
