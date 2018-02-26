@@ -317,6 +317,15 @@ class SDNIPSApp(app_manager.RyuApp):
 
     def bgp_create(self, as_number, router_id):
         # MUDAR AQUI - INICIO
+        try:
+            self.bgp_speaker = BGPSpeaker(as_number=as_number, router_id=router_id,
+                            best_path_change_handler=self.best_path_change_handler,
+                            adj_rib_in_change_handler=self.adj_rib_in_change_handler,
+                            peer_down_handler=self.peer_down_handler,
+                            peer_up_handler=self.peer_up_handler)
+        except Exception as e:
+            print "Error creating bgp speaker: %s" % (e)
+            return (False, 'Failed to create BGP speaker')
         # MUDAR AQUI - FIM
 
         self.bgp_config['as_number'] = as_number
@@ -328,6 +337,11 @@ class SDNIPSApp(app_manager.RyuApp):
 
     def bgp_add_neighbor(self, address, remote_as):
         # MUDAR AQUI - INICIO
+        try:
+            self.bgp_speaker.neighbor_add(address, remote_as)
+        except Exception as e:
+            print "Error on bgp_add_neighbor: %s" % (e)
+            return (False, 'Failed to add BGP neighbor')
         # MUDAR AQUI - FIM
 
         self.bgp_config['neighbors'].append({'address': address,
@@ -337,6 +351,11 @@ class SDNIPSApp(app_manager.RyuApp):
 
     def bgp_add_prefix(self, prefix):
         # MUDAR AQUI - INICIO
+        try:
+            self.bgp_speaker.prefix_add(prefix)
+        except Exception as e:
+            print "Error on bgp_add_prefix: %s" % (e)
+            return (False, 'Failed to add prefix')
         # MUDAR AQUI - FIM
 
         self.bgp_config['adv_prefixes'].append(prefix)
