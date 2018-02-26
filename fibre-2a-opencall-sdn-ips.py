@@ -29,6 +29,7 @@ from ryu.lib.packet import ether_types
 from ryu.lib.packet import arp
 from ryu.lib.packet import ipv4
 from ryu.lib.packet import vlan
+from ryu.lib.packet import bgp
 from ryu.ofproto import ether
 from ryu.topology import event, switches
 from ryu.topology.api import get_switch, get_link
@@ -36,6 +37,8 @@ from ryu.lib import mac
 from ryu.lib import ofctl_v1_0
 from ryu.app.wsgi import ControllerBase, WSGIApplication, route
 from ryu.services.protocols.bgp.bgpspeaker import BGPSpeaker
+from ryu.services.protocols.bgp.info_base.ipv4fs import IPv4FlowSpecPath
+from ryu.services.protocols.bgp.info_base.ipv6fs import IPv6FlowSpecPath
 from webob import Response
 import networkx as nx
 import json
@@ -342,17 +345,19 @@ class SDNIPSApp(app_manager.RyuApp):
         self.persist_config()
         return (True, 'Success')
 
-    def bgp_add_neighbor(self, address, remote_as):
+    def bgp_add_neighbor(self, address, remote_as, enable_ipv4=True, enable_ipv6=False, enable_ipv4fs=False, enable_ipv6fs=False):
         # MUDAR AQUI - INICIO
         try:
-            self.bgp_speaker.neighbor_add(address, remote_as)
+            self.bgp_speaker.neighbor_add(address, remote_as, enable_ipv4=enable_ipv4, enable_ipv6=enable_ipv6, enable_ipv4fs=enable_ipv4fs, enable_ipv6fs=enable_ipv6fs)
         except Exception as e:
             print "Error on bgp_add_neighbor: %s" % (e)
             return (False, 'Failed to add BGP neighbor')
         # MUDAR AQUI - FIM
 
         self.bgp_config['neighbors'].append({'address': address,
-            'remote_as': remote_as})
+            'remote_as': remote_as, 'enable_ipv4' : enable_ipv4, 
+            'enable_ipv6' : enable_ipv6, 'enable_ipv4fs' : enable_ipv4fs,
+            'enable_ipv6fs' : enable_ipv6fs})
         self.persist_config()
         return (True, 'Success')
 
@@ -382,7 +387,53 @@ class SDNIPSApp(app_manager.RyuApp):
                 pass
         else:
             self.rcv_prefixes.append(event.prefix)
-    
+
+    def adj_rib_in_change_handler(self, event, peer_ip, peer_asn):
+        if isinstance(event.path, (IPv4FlowSpecPath, IPv6FlowSpecPath)):
+            #print "formatted_nlri=%s" % (event.path.nlri.formatted_nlri_str)
+            #print "path=%s" % (event.path)
+            #print "pattrs=%s" % (event.path.pathattr_map)
+            extcomm = event.path.get_pattr(bgp.BGP_ATTR_TYPE_EXTENDED_COMMUNITIES, [])
+            if extcomm:
+                extcomm = extcomm.communities
+            #print "BGPExtendedCommunities=%s" % (extcomm)
+            self.bgp_update_flowspec(event.path.nlri.rules, extcomm)
+
+    def bgp_update_flowspec(self, nlri_rules, extcomm):
+        matches = {}
+        for rule in nlri_rules:
+            if isinstance(rule, bgp.FlowSpecDestPrefix):
+                matches['nw_dst'] = rule.addr
+                matches['dst_mask'] = rule.length
+            elif isinstance(rule, bgp.FlowSpecSrcPrefix):
+                matches['nw_src'] = rule.addr
+                matches['src_mask'] = rule.length
+            elif isinstance(rule, bgp.FlowSpecIPProtocol):
+                matches['nw_proto'] = rule.value
+            elif isinstance(rule, bgp.FlowSpecPort):
+                #TODO: since openflow rules does not have an operator to OR (dst port 
+                # or src port), then we should create two rules: one for src port and 
+                # other for dst port
+                pass
+            elif isinstance(rule, bgp.FlowSpecDestPort):
+                matches['tp_dst'] = rule.value
+            elif isinstance(rule, bgp.FlowSpecSrcPort):
+                matches['tp_src'] = rule.value
+        print "matches: %s" % (matches)
+        actions = {}
+        for c in extcomm:
+            if isinstance(c, bgp.BGPFlowSpecTrafficRateCommunity):
+                if c.rate_info > 0.0:
+                    actions['rate-limit'] = c.rate_info
+                else:
+                    actions['discard'] = True
+            elif isinstance(c, bgp.BGPFlowSpecRedirectCommunity):
+                rtcomm = "%d:%d" % (c.as_number, c.local_administrator)
+                nexthop = self.contention_vrf.get(rtcomm, None)
+                if nexthop:
+                    actions['redirect-to-nexthop'] = nexthop
+        print "actions: %s" % (actions)
+
     def peer_down_handler(self, remote_ip, remote_as):
         print 'Peer down:', remote_ip, remote_as
 
@@ -629,7 +680,18 @@ class SDNIPSWSGIApp(ControllerBase):
             msg = {REST_RESULT: REST_NG, REST_DETAILS: details}
             return Response(status=400, body=json.dumps(msg))
 
-        status, msg = self.myapp.bgp_add_neighbor(address, remote_as)
+        # dict of address families
+        af = {}
+        if 'enable_ipv4' in bgp_params:
+            af['enable_ipv4'] = True
+        if 'enable_ipv6' in bgp_params:
+            af['enable_ipv6'] = True
+        if 'enable_ipv4fs' in bgp_params:
+            af['enable_ipv4fs'] = True
+        if 'enable_ipv6fs' in bgp_params:
+            af['enable_ipv6fs'] = True
+
+        status, msg = self.myapp.bgp_add_neighbor(address, remote_as, **af)
 
         body = json.dumps([msg])
         return Response(content_type='application/json', body=body)
