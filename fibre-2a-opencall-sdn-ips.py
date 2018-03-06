@@ -425,13 +425,18 @@ class SDNIPSApp(app_manager.RyuApp):
             if isinstance(c, bgp.BGPFlowSpecTrafficRateCommunity):
                 if c.rate_info > 0.0:
                     actions['rate-limit'] = c.rate_info
+                    # TODO: implement rate-limit when QoS queues is available
                 else:
                     actions['discard'] = True
+                    # TODO: make use of the other matches attributes such as tp_dst, proto,...
+                    self.contention_block(matches['nw_src'])
             elif isinstance(c, bgp.BGPFlowSpecRedirectCommunity):
                 rtcomm = "%d:%d" % (c.as_number, c.local_administrator)
                 nexthop = self.contention_vrf.get(rtcomm, None)
                 if nexthop:
                     actions['redirect-to-nexthop'] = nexthop
+                    # TODO: make use of the other matches attributes such as tp_dst, proto,...
+                    self.contention_quarantine(matches['nw_src'], nexthop)
         print "actions: %s" % (actions)
 
     def peer_down_handler(self, remote_ip, remote_as):
